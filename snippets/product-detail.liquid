@@ -1,0 +1,293 @@
+{% comment %}
+  Parameters:
+  - product_detail_summary_position: Where to display product title and description: 'inside' to display above "add to cart" module
+    or 'outside' to display on top of the page.
+  - product_detail_accordion: Whether to display accordion.
+{% endcomment %}
+{% assign comingSoon = false %}
+{% for tag in product.tags %}
+  {% if tag contains 'coming-soon' or tag contains 'coming soon'%}
+    {% assign comingSoon = true %}
+  {% endif %}
+{% endfor %}
+
+{% assign _product_detail_current_variant = product.selected_or_first_available_variant %}
+{%- assign mod_pre_order_ship_date = product.metafields.attributes.preorder_ship_date -%}
+{%- if mod_pre_order_ship_date != blank -%}
+  {%- assign _product_bis_title = 'products.product.back_in_stock.title_coming' | t -%}
+{% elsif comingSoon == true %}
+  {%- assign _product_bis_title = 'products.product.back_in_stock.title_coming' | t -%}
+{%- else -%}
+  {%- assign _product_bis_title = 'products.product.back_in_stock.title' | t -%}
+{%- endif -%}
+
+
+{% comment %}
+  - ACF product customizer
+{% endcomment %}
+{% assign product_customizer_button_text = product.metafields.accentuate.product_customizer_button_text %}
+{% assign product_customizer_price_from = product.metafields.accentuate.product_customizer_price_from %}
+{% assign product_customizer_gift_text = product.metafields.accentuate.product_customizer_gift_text %}
+{% assign product_customizer_gift_price = product.metafields.accentuate.product_customizer_gift_price %}
+
+{%- for tag in product.tags -%}
+  {%- if tag contains 'pre-order' or tag contains 'preorder' -%}
+    {%- assign _product_bis_title = 'Pre-Order'-%}
+  {%- endif -%}
+{%- endfor -%}
+{% if product_detail_accordion %}
+  {% comment %}
+    In case of product info accordions where user wants to separate the first paragraph away from
+    the accordion:
+  {% endcomment %}
+  {%- comment -%}
+    2. Available variables after include:
+    {{- _product_description -}} : Product description to display right below product title
+    {{- _product_accordion_list -}} : List of accordion sections to be displayed below product form
+  {%- endcomment -%}
+
+  {% assign _product_detail_description = product.description %}
+  {% assign split_content = _product_detail_description | replace: '<h4>', '`<h4>' | split: '`' %}
+  {% assign _product_description = split_content[0] %}
+  {% assign _product_accordion_list = _product_detail_description | replace: _product_description, '' | replace: '<h4>', '`<h4>' | split: '`' %}
+
+  {% capture _product_detail_accordion %}
+    {% render 'product-accordion', list: _product_accordion_list %}
+  {% endcapture %}
+{% else %}
+  {% comment %}
+    Otherwise, use the whole product description as usual
+  {% endcomment %}
+  {% assign _product_detail_description = product.description %}
+{% endif %}
+
+{% capture _product_detail_header %}
+  {% render 'product-header',
+    product_header_position: product_detail_summary_position
+    product_header_class: 'product-detail__header',
+    product_header_description: _product_description,
+    product_header_vue_attr: ':product="product" :variant="currentVariant"',
+  %}
+{% endcapture %}
+
+{% assign _product_detail_class = product_detail_class | prepend: "product-detail " %}
+{% unless product.available %}
+  {% assign _product_detail_class = _product_detail_class | append: ' product-detail--sold-out' %}
+{% endunless %}
+
+{% if product.template_suffix == 'customize' %}
+  {% assign _product_detail_class = _product_detail_class | append: ' product-detail--customize' %}
+{% endif %}
+
+{%- capture _product_detail_json -%}
+  {%- render 'product-json-meta', item: product, include_related_products: false, include_linked_products: false -%}
+{%- endcapture -%}
+
+{%- assign _vertical_nav = false -%}
+{% if settings.product_carousel_image_thumbnail_position == 'left' %}
+  {%- assign _vertical_nav = true -%}
+{% endif %}
+
+{% liquid
+	assign notify_exempted = false
+	if settings.product_tags_exempted_notify != blank
+		assign product_tags_exempted_notify = settings.product_tags_exempted_notify | split: ","
+		for product_tag in product.tags
+			assign downcase_product_tag = product_tag | downcase
+			for tag_exempted_notify in product_tags_exempted_notify
+				assign downcase_tag = tag_exempted_notify | strip | downcase
+				if downcase_product_tag == downcase_tag
+					assign notify_exempted = true
+					break
+				endif
+			endfor
+			if notify_exempted == true
+				break
+			endif
+		endfor
+	endif
+%}
+
+{%- capture inventoryLevels -%}
+  {
+    {%- for variant in product.variants -%}
+      {%- assign inventory_levels = nil -%}
+      {%- if variant.metafields.inventory.levels == nil or variant.metafields.inventory.levels == '' or variant.metafields.inventory.levels == blank -%}
+        {%- capture arrs -%}[]{%- endcapture -%}
+        {%- assign inventory_levels = arrs -%}
+      {%- else -%}
+        {%- assign inventory_levels = variant.metafields.inventory.levels -%}
+      {%- endif -%}
+      "{{- variant.id -}}": {
+        "inventory_quantity": {{- variant.inventory_quantity -}},
+        "inventory_management": "{{- variant.inventory_management -}}",
+        "inventory_policy": "{{- variant.inventory_policy -}}",
+        "inventory_levels": {{ inventory_levels }}
+      }
+      {%- unless forloop.last -%},{% endunless %}
+    {%- endfor -%}
+  }
+{%- endcapture -%}
+
+<div is="product-detail"
+     data-vue
+     inline-template
+     handle="{{ product.handle }}"
+     :product-data="{{- _product_detail_json | escape -}}"
+     {% if product_detail_variants_type %}
+      :variants-type="{{ product_detail_variants_type | json | escape }}"
+     {% endif %}
+     {% if settings.stock_look_up_api_url != blank %}
+     api-lock-up-stock="{{ settings.stock_look_up_api_url }}"
+     :inventory-levels="{{ inventoryLevels | escape }}"
+     {% endif %}
+     v-cloak
+>
+  <article class="{{ _product_detail_class }} vendor-{{product.vendor | downcase}}">
+    <div class="container container--full product-detail__container">
+
+      {% if product_detail_summary_position == 'outside' %}
+        {{ _product_detail_header }}
+      {% endif %}
+
+      <div class="product-detail__wrapper">
+        <div class="product-detail__inner">
+          <div class="product-details__left-block">
+            {% render 'breadcrumbs', class: 'breadcrumbs--desktop breadcrumbs--product' %}
+            <product-images
+              :images="productImages"
+              :enable-image-zoom="{{ settings.product_enable_image_zoom }}"
+              :vertical-nav="{{ _vertical_nav }}"
+              :disable-carousel-desktop="{{ settings.product_disable_carousel_desktop }}"
+              :use-carousel-image-thumbnail="{{ settings.product_use_carousel_image_thumbnail }}"
+              :is-gift-card="isGiftCard"
+            ></product-images>
+          </div>
+          <div class="product-detail__content product-detail__box {% if product.tags contains 'notifyme-disabled' %}notifyme-disabled{% endif %}">
+            {% if product_detail_summary_position == 'inside' %}
+              {{ _product_detail_header }}
+            {% endif %}
+            {% if product.template_suffix == 'customize' %}
+              <div class="product-detail__group">
+            {% endif %}
+            <product-form
+              :options="options"
+              :initial-selected-variant="productData.initial_selected_variant"
+              :variants="variants"
+              :product="product"
+              :product-id="{{ product.id }}"
+              :show-quantity="{{product_detail_quantity}}"
+              :show-low-stock="{{product_detail_low_stock}}"
+              :low-stock-threshold="{{product_detail_low_stock_threshold}}"
+              :show-size-guide="false"
+              :has-sticky="true"
+              :is-available="isAvailable"
+              :collections="productData.collections"
+              @select-variant="selectVariant"
+            >
+              {% if product.template_suffix == 'customize' %}
+                <template v-slot:find-in-store>
+                  {% capture content %}
+                    {%- render 'icon' with 'map-marker-alt-solid', class: 'find-in-store__icon-map' -%}
+                    Find in-store
+                  {% endcapture %}
+                  {%- render 'find-in-store',
+                    class: 'find-in-store--customize',
+                    content: content
+                  -%}
+                </template>
+              {% endif %}
+            </product-form>
+                {% if product.template_suffix == 'customize' %}
+              </div>
+                  {% endif %}
+            <template v-if="!isAvailable">
+              {% if notify_exempted %}
+                <button
+                class="button button--secondary product-bis__button"
+                disabled
+                >
+                {{ 'products.product.sold_out' | t }}
+                </button>
+              {% else %}
+                <plp-bis
+                  :product-handle="product.handle"
+                  :product-available="-1"
+                >
+                </plp-bis>
+                {% render 'plp-bis-slideout',isProductPage: true %}
+              {% endif %} 
+            </template>
+            
+            <template v-if="!isGiftCard">
+              <!-- MILE-222 | Brauz snippet | STARTS -->
+              <div id="brauz-find-in-store-product-page"></div>
+              <div
+                id="brauz-find-in-store-config-product-page"
+                data-sd="{{ shop.permanent_domain }}"
+                data-cvi="{{ product.first_available_variant.id }}"
+                data-hodv="{{ product.has_only_default_variant }}"
+                style="display: none; width: 0;"
+                ></div>
+              {%- if shop.permanent_domain == 'milligram-prod.myshopify.com' -%}
+                <script src="https://d3aq2u4yw77ivo.cloudfront.net/find-in-store/shopify/milligram/find-in-store.shopify.milligram.prod.js"></script>
+              {%- else -%}
+                <script src="https://d3aq2u4yw77ivo.cloudfront.net/find-in-store/shopify/milligram/find-in-store.shopify.milligram.dev.js"></script>
+              {%- endif -%}
+
+              {% assign product_outlet = nil %}
+              {% for tag in product.tags %}
+                {% if tag == 'Clearance' or tag == 'Bellroy|Sale' or tag == 'label-outlet' %}
+                  {% assign product_outlet = true %}
+                {% endif %}
+              {% endfor %}
+              {%- if product.vendor == 'LAMY' -%}
+                {% section 'product-lamy-delivery-slideout' %}
+                {% section 'product-lamy-returns-slideout' %}
+                {% section 'product-lamy-content-slideout' %}
+                {% section 'product-lamy-information' %}
+              {%- elsif product_outlet -%}
+                {%- if product.available -%}
+                  <template v-if="currentVariant === null || currentVariant.available">
+                    {% section 'product-outlet-delivery' %}
+                  </template>
+                  {% section 'product-outlet-delivery-slideout' %}
+                  {% section 'product-outlet-sale' %}
+                  {% section 'product-outlet-sale-slideout' %}
+                  {% section 'product-outlet-information' %}
+                {%- endif -%}
+              {%- else -%}
+                <!-- MILE-222 | Brauz snippet | ENDS-->
+              {%- if product.available -%}
+                  <template v-if="currentVariant === null || currentVariant.available">
+                    {% section 'product-delivery' %}
+                  </template>
+                  {% section 'product-delivery-slideout' %}
+                {%- endif -%}
+                {% section 'product-returns' %}
+                {% section 'product-returns-slideout' %}
+                {% section 'product-information' %}
+              {%- endif -%}
+
+              <div class="product-detail__wysiwyg">
+                {% if _product_detail_accordion %}
+                  {{ _product_detail_accordion }}
+                {% else %}
+                  <div class="wysiwyg">
+                    {{ _product_detail_description }}
+                  </div>
+                {% endif %}
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </article>
+</div>
+
+{%- if shop.permanent_domain == 'milligram-prod.myshopify.com' -%}
+  <script src="https://d3aq2u4yw77ivo.cloudfront.net/find-in-store/shopify/milligram/find-in-store.shopify.milligram.prod.js"></script>
+{%- else -%}
+  <script src="https://d3aq2u4yw77ivo.cloudfront.net/find-in-store/shopify/milligram/find-in-store.shopify.milligram.dev.js"></script>
+{%- endif -%}
